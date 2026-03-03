@@ -1,0 +1,17 @@
+[package]
+name = "zellij_monitor"
+version = "0.1.0"
+edition = "2021"
+description = "A Zellij status-bar plugin that monitors CPU, memory, disk, network, and load average"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zellij-tile = "0.43.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
