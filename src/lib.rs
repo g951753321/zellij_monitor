@@ -71,6 +71,7 @@ impl ZellijPlugin for State {
     fn update(&mut self, event: Event) -> bool {
         match event {
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
+                eprintln!("[zellij_monitor] permissions granted");
                 self.permissions_granted = true;
                 // Now the permission dialog is gone — lock the pane.
                 set_selectable(false);
@@ -78,13 +79,16 @@ impl ZellijPlugin for State {
                 self.collect_proc_metrics(0.0);
                 self.request_disk_metrics();
                 set_timeout(self.config.refresh_interval as f64);
+                eprintln!("[zellij_monitor] initial metrics collected, timer armed");
                 true
             }
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
+                eprintln!("[zellij_monitor] permissions denied");
                 self.permissions_granted = false;
                 true
             }
             Event::Timer(elapsed) => {
+                eprintln!("[zellij_monitor] timer tick elapsed={:.2}s", elapsed);
                 if self.permissions_granted {
                     self.collect_proc_metrics(elapsed);
                     self.request_disk_metrics();
@@ -109,39 +113,52 @@ impl ZellijPlugin for State {
 
     fn render(&mut self, _rows: usize, cols: usize) {
         let output = render::render_bar(self, cols);
+        eprintln!("[zellij_monitor] render cols={} output_len={}", cols, output.len());
         print!("{}", output);
     }
 }
 
 impl State {
     fn collect_proc_metrics(&mut self, elapsed_s: f64) {
+        eprintln!("[zellij_monitor] collecting metrics elapsed_s={:.2}", elapsed_s);
         if self.config.show_cpu {
-            if let Ok(stat) = std::fs::read_to_string("/proc/stat") {
-                self.cpu_pct = self.cpu.update(&stat);
+            match std::fs::read_to_string("/proc/stat") {
+                Ok(stat) => { self.cpu_pct = self.cpu.update(&stat); }
+                Err(e) => eprintln!("[zellij_monitor] /proc/stat read failed: {}", e),
             }
         }
         if self.config.show_memory {
-            if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
-                let (used, total) = metrics::memory::parse_meminfo(&meminfo);
-                self.mem_used_mib = used;
-                self.mem_total_mib = total;
+            match std::fs::read_to_string("/proc/meminfo") {
+                Ok(meminfo) => {
+                    let (used, total) = metrics::memory::parse_meminfo(&meminfo);
+                    self.mem_used_mib = used;
+                    self.mem_total_mib = total;
+                }
+                Err(e) => eprintln!("[zellij_monitor] /proc/meminfo read failed: {}", e),
             }
         }
         if self.config.show_loadavg {
-            if let Ok(la) = std::fs::read_to_string("/proc/loadavg") {
-                let (l1, l5, l15) = metrics::loadavg::parse_loadavg(&la);
-                self.load_1 = l1;
-                self.load_5 = l5;
-                self.load_15 = l15;
+            match std::fs::read_to_string("/proc/loadavg") {
+                Ok(la) => {
+                    let (l1, l5, l15) = metrics::loadavg::parse_loadavg(&la);
+                    self.load_1 = l1;
+                    self.load_5 = l5;
+                    self.load_15 = l15;
+                }
+                Err(e) => eprintln!("[zellij_monitor] /proc/loadavg read failed: {}", e),
             }
         }
         if self.config.show_network {
-            if let Ok(netdev) = std::fs::read_to_string("/proc/net/dev") {
-                let (rx, tx) = self.net.update(&netdev, &self.config.network_interface, elapsed_s);
-                self.net_rx_kbps = rx;
-                self.net_tx_kbps = tx;
+            match std::fs::read_to_string("/proc/net/dev") {
+                Ok(netdev) => {
+                    let (rx, tx) = self.net.update(&netdev, &self.config.network_interface, elapsed_s);
+                    self.net_rx_kbps = rx;
+                    self.net_tx_kbps = tx;
+                }
+                Err(e) => eprintln!("[zellij_monitor] /proc/net/dev read failed: {}", e),
             }
         }
+        eprintln!("[zellij_monitor] cpu={:.1}% mem={}/{} MiB load={:.2}", self.cpu_pct, self.mem_used_mib, self.mem_total_mib, self.load_1);
     }
 
     fn request_disk_metrics(&self) {
