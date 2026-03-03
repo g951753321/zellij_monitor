@@ -3,15 +3,19 @@
 
 layout {
     default_tab_template {
-        children
+        pane size=1 borderless=true {
+            plugin location="tab-bar"
+        }
+
+        pane
 
         pane size=1 borderless=true {
             plugin location="file:target/wasm32-wasip1/debug/zellij_monitor.wasm" {
                 show_cpu        "true"
                 show_memory     "true"
-                show_disk       "true"
-                show_network    "true"
-                show_loadavg    "true"
+                show_disk       "false"
+                show_network    "false"
+                show_loadavg    "false"
                 refresh_interval "5"
                 disk_path       "/"
                 network_interface "all"
@@ -20,9 +24,9 @@ layout {
                 disk_warn_pct   "80"
             }
         }
-    }
 
-    tab name="monitor" {
-        pane
+        pane size=1 borderless=true {
+            plugin location="status-bar"
+        }
     }
 }
