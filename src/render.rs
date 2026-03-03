@@ -141,31 +141,46 @@ pub fn render_bar(state: &State, cols: usize) -> String {
         SEP,
         RESET
     );
-    let content = format!(" {} ", segments.join(&sep));
+    let content = format!("{} ", segments.join(&sep));
 
     // We can't easily measure ANSI-escaped length, so we build a plain-text
     // version to know if truncation is needed, then ship the coloured one.
     let plain = strip_ansi(&content);
-    let truncated = if plain.len() > cols {
+    let plain_len = plain.len();
+
+    if plain_len > cols {
         // Rebuild without the last segment until it fits
         let mut segs = segments.clone();
         loop {
             if segs.is_empty() {
-                break;
+                return String::new();
             }
             let candidate = format!(" {} ", segs.join(&sep));
-            if strip_ansi(&candidate).len() <= cols {
-                return format!("{}{}{}", bg(BG.0, BG.1, BG.2), candidate, RESET);
+            let cand_len = strip_ansi(&candidate).len();
+            if cand_len <= cols {
+                let pad = cols.saturating_sub(cand_len);
+                return format!(
+                    "{:>width$}{}{}{}",
+                    "",
+                    bg(BG.0, BG.1, BG.2),
+                    candidate,
+                    RESET,
+                    width = pad
+                );
             }
             segs.pop();
         }
-        // Absolute fallback: empty bar
-        String::new()
     } else {
-        format!("{}{}{}", bg(BG.0, BG.1, BG.2), content, RESET)
-    };
-
-    truncated
+        let pad = cols.saturating_sub(plain_len);
+        format!(
+            "{:>width$}{}{}{}",
+            "",
+            bg(BG.0, BG.1, BG.2),
+            content,
+            RESET,
+            width = pad
+        )
+    }
 }
 
 fn fmt_mib(mib: u64) -> String {
