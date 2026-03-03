@@ -5,6 +5,14 @@ mod config;
 mod metrics;
 mod render;
 
+// Zellij's WASM loader calls `_start` to initialise the WASI environment
+// before invoking any plugin function.  The wasm32-wasip1 cdylib target does
+// not generate this symbol automatically, so we provide an explicit no-op stub.
+// Gate it to WASM targets only so native `cargo test` doesn't get a linker conflict.
+#[cfg(target_arch = "wasm32")]
+#[no_mangle]
+pub extern "C" fn _start() {}
+
 use config::Config;
 use metrics::{cpu::CpuState, network::NetworkState};
 
