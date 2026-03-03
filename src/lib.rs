@@ -1,16 +1,11 @@
 use std::collections::BTreeMap;
+use std::io::Write;
 use zellij_tile::prelude::*;
 
 mod config;
 mod metrics;
 mod render;
 
-// Zellij's WASM bridge calls `_start` to initialise the WASI environment
-// before invoking any plugin function.  The wasm32-wasip1 cdylib target does
-// not generate this symbol automatically.  We provide it here and forward to
-// `__wasm_call_ctors` so the Rust runtime (allocator, WASI preopens, global
-// constructors) is properly set up before any plugin function runs.
-// The cfg guard keeps native `cargo test` builds from getting a linker conflict.
 #[cfg(target_arch = "wasm32")]
 #[no_mangle]
 pub extern "C" fn _start() {
@@ -43,6 +38,9 @@ struct State {
     // Disk (populated from run_command result)
     disk_used_pct: u8,
     disk_avail_mib: u64,
+    // Elapsed seconds between timer ticks, used for network rate calculation
+    // when RunCommandResult arrives asynchronously.
+    last_elapsed_s: f64,
     // State flags
     initialized: bool,
     permissions_granted: bool,
@@ -56,16 +54,12 @@ impl ZellijPlugin for State {
         request_permission(&[
             PermissionType::ReadApplicationState,
             PermissionType::RunCommands,
-            PermissionType::FullHdAccess,
         ]);
         subscribe(&[
             EventType::Timer,
             EventType::RunCommandResult,
             EventType::PermissionRequestResult,
         ]);
-        // Do NOT call set_selectable(false) here — the pane must remain
-        // selectable so the user can press 'y' on the permission prompt.
-        // It is made non-selectable after permissions are granted.
     }
 
     fn update(&mut self, event: Event) -> bool {
@@ -73,13 +67,10 @@ impl ZellijPlugin for State {
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
                 eprintln!("[zellij_monitor] permissions granted");
                 self.permissions_granted = true;
-                // Now the permission dialog is gone — lock the pane.
                 set_selectable(false);
-                // Kick off first collection immediately (elapsed=0.0 → net rates 0)
-                self.collect_proc_metrics(0.0);
-                self.request_disk_metrics();
+                self.request_all_metrics(0.0);
                 set_timeout(self.config.refresh_interval as f64);
-                eprintln!("[zellij_monitor] initial metrics collected, timer armed");
+                eprintln!("[zellij_monitor] initial metrics requested, timer armed");
                 true
             }
             Event::PermissionRequestResult(PermissionStatus::Denied) => {
@@ -90,21 +81,55 @@ impl ZellijPlugin for State {
             Event::Timer(elapsed) => {
                 eprintln!("[zellij_monitor] timer tick elapsed={:.2}s", elapsed);
                 if self.permissions_granted {
-                    self.collect_proc_metrics(elapsed);
-                    self.request_disk_metrics();
+                    self.request_all_metrics(elapsed);
                 }
                 set_timeout(self.config.refresh_interval as f64);
                 true
             }
             Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
-                if context.get("metric").map(|s| s == "disk").unwrap_or(false) {
-                    if exit_code == Some(0) {
-                        let text = String::from_utf8_lossy(&stdout);
+                if exit_code != Some(0) {
+                    return true;
+                }
+                let text = String::from_utf8_lossy(&stdout);
+                match context.get("metric").map(|s| s.as_str()) {
+                    Some("cpu") => {
+                        self.cpu_pct = self.cpu.update(&text);
+                    }
+                    Some("memory") => {
+                        let (used, total) = metrics::memory::parse_meminfo(&text);
+                        self.mem_used_mib = used;
+                        self.mem_total_mib = total;
+                    }
+                    Some("loadavg") => {
+                        let (l1, l5, l15) = metrics::loadavg::parse_loadavg(&text);
+                        self.load_1 = l1;
+                        self.load_5 = l5;
+                        self.load_15 = l15;
+                    }
+                    Some("network") => {
+                        let (rx, tx) = self.net.update(
+                            &text,
+                            &self.config.network_interface,
+                            self.last_elapsed_s,
+                        );
+                        self.net_rx_kbps = rx;
+                        self.net_tx_kbps = tx;
+                    }
+                    Some("disk") => {
                         let (pct, avail) = metrics::disk::parse_df_output(&text);
                         self.disk_used_pct = pct;
                         self.disk_avail_mib = avail;
                     }
+                    _ => {}
                 }
+                eprintln!(
+                    "[zellij_monitor] metric={:?} cpu={:.1}% mem={}/{} MiB load={:.2}",
+                    context.get("metric"),
+                    self.cpu_pct,
+                    self.mem_used_mib,
+                    self.mem_total_mib,
+                    self.load_1,
+                );
                 true
             }
             _ => false,
@@ -113,62 +138,48 @@ impl ZellijPlugin for State {
 
     fn render(&mut self, _rows: usize, cols: usize) {
         let output = render::render_bar(self, cols);
-        eprintln!("[zellij_monitor] render cols={} output_len={}", cols, output.len());
+        eprintln!(
+            "[zellij_monitor] render cols={} output_len={}",
+            cols,
+            output.len()
+        );
         print!("{}", output);
+        let _ = std::io::stdout().flush();
     }
 }
 
 impl State {
-    fn collect_proc_metrics(&mut self, elapsed_s: f64) {
-        eprintln!("[zellij_monitor] collecting metrics elapsed_s={:.2}", elapsed_s);
+    fn request_all_metrics(&mut self, elapsed_s: f64) {
+        self.last_elapsed_s = elapsed_s;
+        eprintln!(
+            "[zellij_monitor] requesting metrics elapsed_s={:.2}",
+            elapsed_s
+        );
+
         if self.config.show_cpu {
-            match std::fs::read_to_string("/proc/stat") {
-                Ok(stat) => { self.cpu_pct = self.cpu.update(&stat); }
-                Err(e) => eprintln!("[zellij_monitor] /proc/stat read failed: {}", e),
-            }
+            let mut ctx = BTreeMap::new();
+            ctx.insert("metric".into(), "cpu".into());
+            run_command(&["cat", "/proc/stat"], ctx);
         }
         if self.config.show_memory {
-            match std::fs::read_to_string("/proc/meminfo") {
-                Ok(meminfo) => {
-                    let (used, total) = metrics::memory::parse_meminfo(&meminfo);
-                    self.mem_used_mib = used;
-                    self.mem_total_mib = total;
-                }
-                Err(e) => eprintln!("[zellij_monitor] /proc/meminfo read failed: {}", e),
-            }
+            let mut ctx = BTreeMap::new();
+            ctx.insert("metric".into(), "memory".into());
+            run_command(&["cat", "/proc/meminfo"], ctx);
         }
         if self.config.show_loadavg {
-            match std::fs::read_to_string("/proc/loadavg") {
-                Ok(la) => {
-                    let (l1, l5, l15) = metrics::loadavg::parse_loadavg(&la);
-                    self.load_1 = l1;
-                    self.load_5 = l5;
-                    self.load_15 = l15;
-                }
-                Err(e) => eprintln!("[zellij_monitor] /proc/loadavg read failed: {}", e),
-            }
+            let mut ctx = BTreeMap::new();
+            ctx.insert("metric".into(), "loadavg".into());
+            run_command(&["cat", "/proc/loadavg"], ctx);
         }
         if self.config.show_network {
-            match std::fs::read_to_string("/proc/net/dev") {
-                Ok(netdev) => {
-                    let (rx, tx) = self.net.update(&netdev, &self.config.network_interface, elapsed_s);
-                    self.net_rx_kbps = rx;
-                    self.net_tx_kbps = tx;
-                }
-                Err(e) => eprintln!("[zellij_monitor] /proc/net/dev read failed: {}", e),
-            }
+            let mut ctx = BTreeMap::new();
+            ctx.insert("metric".into(), "network".into());
+            run_command(&["cat", "/proc/net/dev"], ctx);
         }
-        eprintln!("[zellij_monitor] cpu={:.1}% mem={}/{} MiB load={:.2}", self.cpu_pct, self.mem_used_mib, self.mem_total_mib, self.load_1);
-    }
-
-    fn request_disk_metrics(&self) {
         if self.config.show_disk {
             let mut ctx = BTreeMap::new();
-            ctx.insert("metric".to_owned(), "disk".to_owned());
-            run_command(
-                &["df", "-BM", self.config.disk_path.as_str()],
-                ctx,
-            );
+            ctx.insert("metric".into(), "disk".into());
+            run_command(&["df", "-BM", self.config.disk_path.as_str()], ctx);
         }
     }
 }
