@@ -1,11 +1,10 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 /// Holds the previous `/proc/net/dev` sample for rate calculation.
 #[derive(Debug, Clone)]
 pub struct NetworkState {
     prev_rx_bytes: u64,
     prev_tx_bytes: u64,
-    prev_time_ms: u64,
+    /// True after the first sample has been recorded.
+    initialized: bool,
 }
 
 impl Default for NetworkState {
@@ -13,7 +12,7 @@ impl Default for NetworkState {
         Self {
             prev_rx_bytes: 0,
             prev_tx_bytes: 0,
-            prev_time_ms: 0,
+            initialized: false,
         }
     }
 }
@@ -54,28 +53,14 @@ pub fn sum_bytes(proc_net_dev: &str, interface: &str) -> (u64, u64) {
     (total_rx, total_tx)
 }
 
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::ZERO)
-        .as_millis() as u64
-}
-
 impl NetworkState {
     /// Feed `/proc/net/dev` content and return `(rx_kbps, tx_kbps)`.
-    /// Returns `(0.0, 0.0)` on the first call.
-    pub fn update(&mut self, proc_net_dev: &str, interface: &str) -> (f64, f64) {
+    /// `elapsed_s` is the seconds since the last call (from Zellij's `Timer` event).
+    /// Returns `(0.0, 0.0)` on the first call (no previous sample).
+    pub fn update(&mut self, proc_net_dev: &str, interface: &str, elapsed_s: f64) -> (f64, f64) {
         let (rx_bytes, tx_bytes) = sum_bytes(proc_net_dev, interface);
-        let now = now_ms();
 
-        let elapsed_s = if self.prev_time_ms == 0 {
-            0.0
-        } else {
-            let ms = now.saturating_sub(self.prev_time_ms);
-            ms as f64 / 1000.0
-        };
-
-        let (rx_kbps, tx_kbps) = if elapsed_s > 0.0 {
+        let (rx_kbps, tx_kbps) = if self.initialized && elapsed_s > 0.0 {
             let rx_delta = rx_bytes.saturating_sub(self.prev_rx_bytes) as f64;
             let tx_delta = tx_bytes.saturating_sub(self.prev_tx_bytes) as f64;
             (rx_delta / 1024.0 / elapsed_s, tx_delta / 1024.0 / elapsed_s)
@@ -85,7 +70,7 @@ impl NetworkState {
 
         self.prev_rx_bytes = rx_bytes;
         self.prev_tx_bytes = tx_bytes;
-        self.prev_time_ms = now;
+        self.initialized = true;
 
         (rx_kbps, tx_kbps)
     }
@@ -136,10 +121,10 @@ Inter-|   Receive                                                |  Transmit
     #[test]
     fn first_update_returns_zero_rates() {
         let mut state = NetworkState::default();
-        let (rx, tx) = state.update(SAMPLE, "all");
+        let (rx, tx) = state.update(SAMPLE, "all", 0.0);
         assert_eq!(rx, 0.0);
         assert_eq!(tx, 0.0);
         // State should be seeded now
-        assert!(state.prev_rx_bytes > 0);
+        assert!(state.initialized);
     }
 }

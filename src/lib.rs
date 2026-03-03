@@ -74,8 +74,8 @@ impl ZellijPlugin for State {
                 self.permissions_granted = true;
                 // Now the permission dialog is gone — lock the pane.
                 set_selectable(false);
-                // Kick off first collection immediately
-                self.collect_proc_metrics();
+                // Kick off first collection immediately (elapsed=0.0 → net rates 0)
+                self.collect_proc_metrics(0.0);
                 self.request_disk_metrics();
                 set_timeout(self.config.refresh_interval as f64);
                 true
@@ -84,9 +84,9 @@ impl ZellijPlugin for State {
                 self.permissions_granted = false;
                 true
             }
-            Event::Timer(_) => {
+            Event::Timer(elapsed) => {
                 if self.permissions_granted {
-                    self.collect_proc_metrics();
+                    self.collect_proc_metrics(elapsed);
                     self.request_disk_metrics();
                 }
                 set_timeout(self.config.refresh_interval as f64);
@@ -114,7 +114,7 @@ impl ZellijPlugin for State {
 }
 
 impl State {
-    fn collect_proc_metrics(&mut self) {
+    fn collect_proc_metrics(&mut self, elapsed_s: f64) {
         if self.config.show_cpu {
             if let Ok(stat) = std::fs::read_to_string("/proc/stat") {
                 self.cpu_pct = self.cpu.update(&stat);
@@ -137,7 +137,7 @@ impl State {
         }
         if self.config.show_network {
             if let Ok(netdev) = std::fs::read_to_string("/proc/net/dev") {
-                let (rx, tx) = self.net.update(&netdev, &self.config.network_interface);
+                let (rx, tx) = self.net.update(&netdev, &self.config.network_interface, elapsed_s);
                 self.net_rx_kbps = rx;
                 self.net_tx_kbps = tx;
             }
