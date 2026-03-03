@@ -30,7 +30,15 @@ mkdir -p "${PLUGIN_DIR}"
 cp "${WASM_PATH}" "${PLUGIN_DIR}/${PLUGIN_NAME}.wasm"
 echo "  Done: ${PLUGIN_DIR}/${PLUGIN_NAME}.wasm"
 
-# ── 4. Print KDL snippet ───────────────────────────────────────────────────────
+# ── 4. Clear Zellij plugin cache so the new WASM isn't shadowed ────────────────
+echo "→ Clearing Zellij plugin cache (~/.cache/zellij)"
+rm -rf ~/.cache/zellij
+
+# ── 5. Kill any stale Zellij server processes ─────────────────────────────────
+echo "→ Stopping any running Zellij servers"
+pkill -f "zellij --server" 2>/dev/null && echo "  Stopped stale servers." || echo "  No running servers found."
+
+# ── 6. Print KDL snippet ───────────────────────────────────────────────────────
 cat <<'EOF'
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
