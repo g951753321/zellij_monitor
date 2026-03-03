@@ -56,13 +56,17 @@ impl ZellijPlugin for State {
             EventType::RunCommandResult,
             EventType::PermissionRequestResult,
         ]);
-        set_selectable(false);
+        // Do NOT call set_selectable(false) here — the pane must remain
+        // selectable so the user can press 'y' on the permission prompt.
+        // It is made non-selectable after permissions are granted.
     }
 
     fn update(&mut self, event: Event) -> bool {
         match event {
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
                 self.permissions_granted = true;
+                // Now the permission dialog is gone — lock the pane.
+                set_selectable(false);
                 // Kick off first collection immediately
                 self.collect_proc_metrics();
                 self.request_disk_metrics();
