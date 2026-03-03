@@ -35,6 +35,8 @@ struct State {
     net: NetworkState,
     net_rx_kbps: f64,
     net_tx_kbps: f64,
+    // CPU temperature
+    cpu_temp_celsius: f32,
     // Disk (populated from run_command result)
     disk_used_pct: u8,
     disk_avail_mib: u64,
@@ -115,6 +117,10 @@ impl ZellijPlugin for State {
                         self.net_rx_kbps = rx;
                         self.net_tx_kbps = tx;
                     }
+                    Some("cpu_temp") => {
+                        self.cpu_temp_celsius =
+                            metrics::cpu_temp::parse_thermal_zones(&text);
+                    }
                     Some("disk") => {
                         let (pct, avail) = metrics::disk::parse_df_output(&text);
                         self.disk_used_pct = pct;
@@ -175,6 +181,14 @@ impl State {
             let mut ctx = BTreeMap::new();
             ctx.insert("metric".into(), "network".into());
             run_command(&["cat", "/proc/net/dev"], ctx);
+        }
+        if self.config.show_cpu_temp {
+            let mut ctx = BTreeMap::new();
+            ctx.insert("metric".into(), "cpu_temp".into());
+            run_command(
+                &["sh", "-c", "cat /sys/class/thermal/thermal_zone*/temp"],
+                ctx,
+            );
         }
         if self.config.show_disk {
             let mut ctx = BTreeMap::new();

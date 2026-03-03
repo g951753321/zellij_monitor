@@ -13,6 +13,7 @@ layout {
             plugin location="file:target/wasm32-wasip1/debug/zellij_monitor.wasm" {
                 show_cpu        "true"
                 show_memory     "true"
+                show_cpu_temp   "true"
                 show_disk       "false"
                 show_network    "false"
                 show_loadavg    "false"
@@ -22,6 +23,7 @@ layout {
                 cpu_warn_pct    "80"
                 mem_warn_pct    "80"
                 disk_warn_pct   "80"
+                cpu_temp_warn   "80"
             }
         }
 

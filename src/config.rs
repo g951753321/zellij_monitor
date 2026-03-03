@@ -10,12 +10,14 @@ use std::collections::BTreeMap;
 ///     show_disk       "true"
 ///     show_network    "true"
 ///     show_loadavg    "true"
+///     show_cpu_temp   "true"
 ///     refresh_interval "5"
 ///     disk_path       "/"
 ///     network_interface "all"
 ///     cpu_warn_pct    "80"
 ///     mem_warn_pct    "80"
 ///     disk_warn_pct   "80"
+///     cpu_temp_warn   "80"
 /// }
 /// ```
 #[derive(Debug, Clone)]
@@ -25,12 +27,15 @@ pub struct Config {
     pub show_disk: bool,
     pub show_network: bool,
     pub show_loadavg: bool,
+    pub show_cpu_temp: bool,
     pub refresh_interval: u64,
     pub disk_path: String,
     pub network_interface: String,
     pub cpu_warn_pct: u8,
     pub mem_warn_pct: u8,
     pub disk_warn_pct: u8,
+    /// Warning threshold for CPU temperature in °C.
+    pub cpu_temp_warn: u8,
 }
 
 impl Default for Config {
@@ -41,12 +46,14 @@ impl Default for Config {
             show_disk: true,
             show_network: true,
             show_loadavg: true,
+            show_cpu_temp: true,
             refresh_interval: 5,
             disk_path: "/".to_owned(),
             network_interface: "all".to_owned(),
             cpu_warn_pct: 80,
             mem_warn_pct: 80,
             disk_warn_pct: 80,
+            cpu_temp_warn: 80,
         }
     }
 }
@@ -70,6 +77,9 @@ impl Config {
         if let Some(v) = map.get("show_loadavg") {
             cfg.show_loadavg = v != "false";
         }
+        if let Some(v) = map.get("show_cpu_temp") {
+            cfg.show_cpu_temp = v != "false";
+        }
         if let Some(v) = map.get("refresh_interval") {
             cfg.refresh_interval = v.parse::<u64>().unwrap_or(5).max(1);
         }
@@ -87,6 +97,9 @@ impl Config {
         }
         if let Some(v) = map.get("disk_warn_pct") {
             cfg.disk_warn_pct = v.parse::<u8>().unwrap_or(80);
+        }
+        if let Some(v) = map.get("cpu_temp_warn") {
+            cfg.cpu_temp_warn = v.parse::<u8>().unwrap_or(80);
         }
 
         cfg
@@ -112,12 +125,14 @@ mod tests {
         assert!(cfg.show_disk);
         assert!(cfg.show_network);
         assert!(cfg.show_loadavg);
+        assert!(cfg.show_cpu_temp);
         assert_eq!(cfg.refresh_interval, 5);
         assert_eq!(cfg.disk_path, "/");
         assert_eq!(cfg.network_interface, "all");
         assert_eq!(cfg.cpu_warn_pct, 80);
         assert_eq!(cfg.mem_warn_pct, 80);
         assert_eq!(cfg.disk_warn_pct, 80);
+        assert_eq!(cfg.cpu_temp_warn, 80);
     }
 
     #[test]

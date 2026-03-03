@@ -84,6 +84,18 @@ pub fn render_bar(state: &State, cols: usize) -> String {
         ));
     }
 
+    if state.config.show_cpu_temp {
+        let temp = state.cpu_temp_celsius as u8;
+        let col = value_color(temp, state.config.cpu_temp_warn);
+        segments.push(format!(
+            "{}TEMP {}{:3}°C{}",
+            label(""),
+            col,
+            temp,
+            RESET
+        ));
+    }
+
     if state.config.show_disk {
         let pct = state.disk_used_pct;
         let col = value_color(pct, state.config.disk_warn_pct);
