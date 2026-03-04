@@ -1,33 +1,64 @@
 use std::collections::BTreeMap;
 
+/// Supported metric types for the status bar.
+///
+/// Supported values: `cpu`, `memory`, `cpu_temp`, `disk`, `network`, `loadavg`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetricType {
+    Cpu,
+    Memory,
+    CpuTemp,
+    Disk,
+    Network,
+    LoadAvg,
+}
+
+impl MetricType {
+    /// Parse a single metric name (case-insensitive, trimmed).
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "cpu" => Some(Self::Cpu),
+            "memory" | "mem" => Some(Self::Memory),
+            "cpu_temp" | "temp" => Some(Self::CpuTemp),
+            "disk" => Some(Self::Disk),
+            "network" | "net" => Some(Self::Network),
+            "loadavg" | "load" => Some(Self::LoadAvg),
+            _ => None,
+        }
+    }
+
+    /// All metric types in default display order.
+    pub fn all() -> Vec<Self> {
+        vec![
+            Self::Cpu,
+            Self::Memory,
+            Self::CpuTemp,
+            Self::Disk,
+            Self::Network,
+            Self::LoadAvg,
+        ]
+    }
+}
+
 /// Plugin configuration, loaded from the KDL layout file.
 ///
 /// Example KDL configuration:
 /// ```kdl
 /// plugin location="file:~/.config/zellij/plugins/zellij_monitor.wasm" {
-///     show_cpu        "true"
-///     show_memory     "true"
-///     show_disk       "true"
-///     show_network    "true"
-///     show_loadavg    "true"
-///     show_cpu_temp   "true"
+///     plugins          "cpu, memory, cpu_temp"
 ///     refresh_interval "5"
-///     disk_path       "/"
+///     disk_path        "/"
 ///     network_interface "all"
-///     cpu_warn_pct    "80"
-///     mem_warn_pct    "80"
-///     disk_warn_pct   "80"
-///     cpu_temp_warn   "80"
+///     cpu_warn_pct     "80"
+///     mem_warn_pct     "80"
+///     disk_warn_pct    "80"
+///     cpu_temp_warn    "80"
 /// }
 /// ```
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub show_cpu: bool,
-    pub show_memory: bool,
-    pub show_disk: bool,
-    pub show_network: bool,
-    pub show_loadavg: bool,
-    pub show_cpu_temp: bool,
+    /// Ordered list of metrics to display. Only metrics listed here are shown.
+    pub plugins: Vec<MetricType>,
     pub refresh_interval: u64,
     pub disk_path: String,
     pub network_interface: String,
@@ -41,12 +72,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            show_cpu: true,
-            show_memory: true,
-            show_disk: true,
-            show_network: true,
-            show_loadavg: true,
-            show_cpu_temp: true,
+            plugins: MetricType::all(),
             refresh_interval: 5,
             disk_path: "/".to_owned(),
             network_interface: "all".to_owned(),
@@ -59,26 +85,23 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Returns `true` if the given metric type is enabled (present in `plugins`).
+    #[allow(dead_code)]
+    pub fn is_enabled(&self, mt: MetricType) -> bool {
+        self.plugins.contains(&mt)
+    }
+
     pub fn from_map(map: &BTreeMap<String, String>) -> Self {
         let mut cfg = Self::default();
 
-        if let Some(v) = map.get("show_cpu") {
-            cfg.show_cpu = v != "false";
-        }
-        if let Some(v) = map.get("show_memory") {
-            cfg.show_memory = v != "false";
-        }
-        if let Some(v) = map.get("show_disk") {
-            cfg.show_disk = v != "false";
-        }
-        if let Some(v) = map.get("show_network") {
-            cfg.show_network = v != "false";
-        }
-        if let Some(v) = map.get("show_loadavg") {
-            cfg.show_loadavg = v != "false";
-        }
-        if let Some(v) = map.get("show_cpu_temp") {
-            cfg.show_cpu_temp = v != "false";
+        if let Some(v) = map.get("plugins") {
+            let parsed: Vec<MetricType> = v
+                .split(',')
+                .filter_map(|s| MetricType::from_str(s))
+                .collect();
+            if !parsed.is_empty() {
+                cfg.plugins = parsed;
+            }
         }
         if let Some(v) = map.get("refresh_interval") {
             cfg.refresh_interval = v.parse::<u64>().unwrap_or(5).max(1);
@@ -120,12 +143,7 @@ mod tests {
     #[test]
     fn defaults_when_empty_map() {
         let cfg = Config::from_map(&BTreeMap::new());
-        assert!(cfg.show_cpu);
-        assert!(cfg.show_memory);
-        assert!(cfg.show_disk);
-        assert!(cfg.show_network);
-        assert!(cfg.show_loadavg);
-        assert!(cfg.show_cpu_temp);
+        assert_eq!(cfg.plugins, MetricType::all());
         assert_eq!(cfg.refresh_interval, 5);
         assert_eq!(cfg.disk_path, "/");
         assert_eq!(cfg.network_interface, "all");
@@ -136,22 +154,54 @@ mod tests {
     }
 
     #[test]
-    fn overrides_are_applied() {
+    fn order_controls_enabled_metrics() {
         let cfg = Config::from_map(&map(&[
-            ("show_cpu", "false"),
-            ("show_disk", "false"),
+            ("plugins", "cpu, memory, cpu_temp"),
             ("refresh_interval", "10"),
             ("disk_path", "/home"),
             ("network_interface", "eth0"),
             ("cpu_warn_pct", "90"),
         ]));
-        assert!(!cfg.show_cpu);
-        assert!(!cfg.show_disk);
-        assert!(cfg.show_memory); // untouched → default true
+        assert_eq!(
+            cfg.plugins,
+            vec![MetricType::Cpu, MetricType::Memory, MetricType::CpuTemp]
+        );
+        assert!(cfg.is_enabled(MetricType::Cpu));
+        assert!(cfg.is_enabled(MetricType::Memory));
+        assert!(cfg.is_enabled(MetricType::CpuTemp));
+        assert!(!cfg.is_enabled(MetricType::Disk));
+        assert!(!cfg.is_enabled(MetricType::Network));
+        assert!(!cfg.is_enabled(MetricType::LoadAvg));
         assert_eq!(cfg.refresh_interval, 10);
         assert_eq!(cfg.disk_path, "/home");
         assert_eq!(cfg.network_interface, "eth0");
         assert_eq!(cfg.cpu_warn_pct, 90);
+    }
+
+    #[test]
+    fn order_accepts_aliases() {
+        let cfg = Config::from_map(&map(&[("plugins", "mem, temp, net, load")]));
+        assert_eq!(
+            cfg.plugins,
+            vec![
+                MetricType::Memory,
+                MetricType::CpuTemp,
+                MetricType::Network,
+                MetricType::LoadAvg,
+            ]
+        );
+    }
+
+    #[test]
+    fn order_ignores_unknown_values() {
+        let cfg = Config::from_map(&map(&[("plugins", "cpu, bogus, memory")]));
+        assert_eq!(cfg.plugins, vec![MetricType::Cpu, MetricType::Memory]);
+    }
+
+    #[test]
+    fn order_all_invalid_falls_back_to_default() {
+        let cfg = Config::from_map(&map(&[("plugins", "bogus, nope")]));
+        assert_eq!(cfg.plugins, MetricType::all());
     }
 
     #[test]

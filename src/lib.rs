@@ -15,7 +15,7 @@ pub extern "C" fn _start() {
     unsafe { __wasm_call_ctors() };
 }
 
-use config::Config;
+use config::{Config, MetricType};
 use metrics::{cpu::CpuState, network::NetworkState};
 
 #[derive(Default)]
@@ -162,38 +162,37 @@ impl State {
             elapsed_s
         );
 
-        if self.config.show_cpu {
+        for mt in &self.config.plugins {
             let mut ctx = BTreeMap::new();
-            ctx.insert("metric".into(), "cpu".into());
-            run_command(&["cat", "/proc/stat"], ctx);
-        }
-        if self.config.show_memory {
-            let mut ctx = BTreeMap::new();
-            ctx.insert("metric".into(), "memory".into());
-            run_command(&["cat", "/proc/meminfo"], ctx);
-        }
-        if self.config.show_loadavg {
-            let mut ctx = BTreeMap::new();
-            ctx.insert("metric".into(), "loadavg".into());
-            run_command(&["cat", "/proc/loadavg"], ctx);
-        }
-        if self.config.show_network {
-            let mut ctx = BTreeMap::new();
-            ctx.insert("metric".into(), "network".into());
-            run_command(&["cat", "/proc/net/dev"], ctx);
-        }
-        if self.config.show_cpu_temp {
-            let mut ctx = BTreeMap::new();
-            ctx.insert("metric".into(), "cpu_temp".into());
-            run_command(
-                &["sh", "-c", "cat /sys/class/thermal/thermal_zone*/temp"],
-                ctx,
-            );
-        }
-        if self.config.show_disk {
-            let mut ctx = BTreeMap::new();
-            ctx.insert("metric".into(), "disk".into());
-            run_command(&["df", "-BM", self.config.disk_path.as_str()], ctx);
+            match mt {
+                MetricType::Cpu => {
+                    ctx.insert("metric".into(), "cpu".into());
+                    run_command(&["cat", "/proc/stat"], ctx);
+                }
+                MetricType::Memory => {
+                    ctx.insert("metric".into(), "memory".into());
+                    run_command(&["cat", "/proc/meminfo"], ctx);
+                }
+                MetricType::LoadAvg => {
+                    ctx.insert("metric".into(), "loadavg".into());
+                    run_command(&["cat", "/proc/loadavg"], ctx);
+                }
+                MetricType::Network => {
+                    ctx.insert("metric".into(), "network".into());
+                    run_command(&["cat", "/proc/net/dev"], ctx);
+                }
+                MetricType::CpuTemp => {
+                    ctx.insert("metric".into(), "cpu_temp".into());
+                    run_command(
+                        &["sh", "-c", "cat /sys/class/thermal/thermal_zone*/temp"],
+                        ctx,
+                    );
+                }
+                MetricType::Disk => {
+                    ctx.insert("metric".into(), "disk".into());
+                    run_command(&["df", "-BM", self.config.disk_path.as_str()], ctx);
+                }
+            }
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::config::MetricType;
 use crate::State;
 
 // ANSI 24-bit colour helpers
@@ -50,89 +51,89 @@ pub fn render_bar(state: &State, cols: usize) -> String {
         format!("{}{}{}", fg(FG_LABEL.0, FG_LABEL.1, FG_LABEL.2), s, RESET)
     };
 
-    if state.config.show_cpu {
-        let pct = state.cpu_pct as u8;
-        let col = value_color(pct, state.config.cpu_warn_pct);
-        segments.push(format!(
-            "{}CPU {}{:3}%{}",
-            label(""),
-            col,
-            pct,
-            RESET
-        ));
-    }
+    for mt in &state.config.plugins {
+        match mt {
+            MetricType::Cpu => {
+                let pct = state.cpu_pct as u8;
+                let col = value_color(pct, state.config.cpu_warn_pct);
+                segments.push(format!(
+                    "{}CPU {}{:3}%{}",
+                    label(""),
+                    col,
+                    pct,
+                    RESET
+                ));
+            }
+            MetricType::Memory if state.mem_total_mib > 0 => {
+                let used = state.mem_used_mib;
+                let total = state.mem_total_mib;
+                let pct = (used * 100 / total.max(1)) as u8;
+                let col = value_color(pct, state.config.mem_warn_pct);
 
-    if state.config.show_memory && state.mem_total_mib > 0 {
-        let used = state.mem_used_mib;
-        let total = state.mem_total_mib;
-        let pct = (used * 100 / total.max(1)) as u8;
-        let col = value_color(pct, state.config.mem_warn_pct);
-
-        let (used_disp, total_disp, unit) = if total >= 1024 {
-            (used as f64 / 1024.0, total as f64 / 1024.0, "GiB")
-        } else {
-            (used as f64, total as f64, "MiB")
-        };
-        segments.push(format!(
-            "{}MEM {}{:.1}/{:.1} {}{}",
-            label(""),
-            col,
-            used_disp,
-            total_disp,
-            unit,
-            RESET
-        ));
-    }
-
-    if state.config.show_cpu_temp {
-        let temp = state.cpu_temp_celsius as u8;
-        let col = value_color(temp, state.config.cpu_temp_warn);
-        segments.push(format!(
-            "{}TEMP {}{:3}°C{}",
-            label(""),
-            col,
-            temp,
-            RESET
-        ));
-    }
-
-    if state.config.show_disk {
-        let pct = state.disk_used_pct;
-        let col = value_color(pct, state.config.disk_warn_pct);
-        segments.push(format!(
-            "{}DISK {}{:3}% {} free{}",
-            label(""),
-            col,
-            pct,
-            fmt_mib(state.disk_avail_mib),
-            RESET
-        ));
-    }
-
-    if state.config.show_network {
-        let rx_col = fg(FG_OK.0, FG_OK.1, FG_OK.2);
-        let tx_col = fg(FG_WARN.0, FG_WARN.1, FG_WARN.2);
-        segments.push(format!(
-            "{}NET {}↓{} {}↑{}{}",
-            label(""),
-            rx_col,
-            fmt_rate(state.net_rx_kbps),
-            tx_col,
-            fmt_rate(state.net_tx_kbps),
-            RESET
-        ));
-    }
-
-    if state.config.show_loadavg {
-        segments.push(format!(
-            "{}LOAD {}{:.2} {:.2} {:.2}{}",
-            label(""),
-            fg(FG_OK.0, FG_OK.1, FG_OK.2),
-            state.load_1,
-            state.load_5,
-            state.load_15,
-            RESET
-        ));
+                let (used_disp, total_disp, unit) = if total >= 1024 {
+                    (used as f64 / 1024.0, total as f64 / 1024.0, "GiB")
+                } else {
+                    (used as f64, total as f64, "MiB")
+                };
+                segments.push(format!(
+                    "{}MEM {}{:.1}/{:.1} {}{}",
+                    label(""),
+                    col,
+                    used_disp,
+                    total_disp,
+                    unit,
+                    RESET
+                ));
+            }
+            MetricType::CpuTemp => {
+                let temp = state.cpu_temp_celsius as u8;
+                let col = value_color(temp, state.config.cpu_temp_warn);
+                segments.push(format!(
+                    "{}TEMP {}{:3}°C{}",
+                    label(""),
+                    col,
+                    temp,
+                    RESET
+                ));
+            }
+            MetricType::Disk => {
+                let pct = state.disk_used_pct;
+                let col = value_color(pct, state.config.disk_warn_pct);
+                segments.push(format!(
+                    "{}DISK {}{:3}% {} free{}",
+                    label(""),
+                    col,
+                    pct,
+                    fmt_mib(state.disk_avail_mib),
+                    RESET
+                ));
+            }
+            MetricType::Network => {
+                let rx_col = fg(FG_OK.0, FG_OK.1, FG_OK.2);
+                let tx_col = fg(FG_WARN.0, FG_WARN.1, FG_WARN.2);
+                segments.push(format!(
+                    "{}NET {}↓{} {}↑{}{}",
+                    label(""),
+                    rx_col,
+                    fmt_rate(state.net_rx_kbps),
+                    tx_col,
+                    fmt_rate(state.net_tx_kbps),
+                    RESET
+                ));
+            }
+            MetricType::LoadAvg => {
+                segments.push(format!(
+                    "{}LOAD {}{:.2} {:.2} {:.2}{}",
+                    label(""),
+                    fg(FG_OK.0, FG_OK.1, FG_OK.2),
+                    state.load_1,
+                    state.load_5,
+                    state.load_15,
+                    RESET
+                ));
+            }
+            _ => {} // Memory with total == 0 — skip
+        }
     }
 
     if !state.permissions_granted && !state.initialized {

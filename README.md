@@ -44,12 +44,9 @@ default_tab_template {
 
     pane size=1 borderless=true {
         plugin location="file:~/.config/zellij/plugins/zellij_monitor.wasm" {
-            show_cpu        "true"
-            show_memory     "true"
-            show_cpu_temp   "true"
-            show_disk       "true"
-            show_network    "true"
-            show_loadavg    "true"
+            // Supported types: cpu, memory, cpu_temp, disk, network, loadavg
+            // Aliases: mem, temp, net, load
+            plugins          "cpu, memory, cpu_temp, disk, network, loadavg"
             refresh_interval "5"
             disk_path       "/"
             network_interface "all"
@@ -77,12 +74,7 @@ All keys are optional. Unset keys use the defaults shown below.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `show_cpu` | `"true"` / `"false"` | `"true"` | Show CPU usage |
-| `show_memory` | `"true"` / `"false"` | `"true"` | Show memory usage |
-| `show_disk` | `"true"` / `"false"` | `"true"` | Show disk usage |
-| `show_network` | `"true"` / `"false"` | `"true"` | Show network I/O |
-| `show_loadavg` | `"true"` / `"false"` | `"true"` | Show load average |
-| `show_cpu_temp` | `"true"` / `"false"` | `"true"` | Show CPU temperature (avg across thermal zones) |
+| `plugins` | comma-separated list | `"cpu, memory, cpu_temp, disk, network, loadavg"` | Metrics to display, in order. Only listed metrics are shown and polled. |
 | `refresh_interval` | integer (seconds) | `"5"` | Polling interval (min 1 s) |
 | `disk_path` | path string | `"/"` | Mount point to monitor |
 | `network_interface` | interface name or `"all"` | `"all"` | Interface to track; `"all"` sums non-loopback |
@@ -90,6 +82,17 @@ All keys are optional. Unset keys use the defaults shown below.
 | `mem_warn_pct` | 0–100 | `"80"` | Memory % threshold |
 | `disk_warn_pct` | 0–100 | `"80"` | Disk % threshold |
 | `cpu_temp_warn` | 0–100 | `"80"` | CPU temp °C threshold |
+
+### Supported Metric Types
+
+| Type | Alias | Description |
+|------|-------|-------------|
+| `cpu` | | CPU usage % |
+| `memory` | `mem` | Memory used / total |
+| `cpu_temp` | `temp` | CPU temperature (avg across thermal zones) |
+| `disk` | | Disk used % + free space |
+| `network` | `net` | Network RX/TX rate |
+| `loadavg` | `load` | Load average 1/5/15 m |
 
 ### Colour Coding
 

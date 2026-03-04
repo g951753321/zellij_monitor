@@ -11,12 +11,9 @@ layout {
 
         pane size=1 borderless=true {
             plugin location="file:target/wasm32-wasip1/debug/zellij_monitor.wasm" {
-                show_cpu        "true"
-                show_memory     "true"
-                show_cpu_temp   "true"
-                show_disk       "false"
-                show_network    "false"
-                show_loadavg    "false"
+                // Supported types: cpu, memory, cpu_temp, disk, network, loadavg
+                // Aliases: mem, temp, net, load
+                plugins          "cpu, cpu_temp, memory"
                 refresh_interval "5"
                 disk_path       "/"
                 network_interface "all"
