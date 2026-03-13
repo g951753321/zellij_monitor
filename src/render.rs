@@ -1,4 +1,4 @@
-use crate::config::MetricType;
+use crate::config::{Alignment, MetricType};
 use crate::State;
 
 // ANSI 24-bit colour helpers
@@ -162,7 +162,6 @@ pub fn render_bar(state: &State, cols: usize) -> String {
     let plain_len = plain.len();
 
     if plain_len > cols {
-        // Rebuild without the last segment until it fits
         let mut segs = segments.clone();
         loop {
             if segs.is_empty() {
@@ -171,28 +170,44 @@ pub fn render_bar(state: &State, cols: usize) -> String {
             let candidate = format!(" {} ", segs.join(&sep));
             let cand_len = strip_ansi(&candidate).len();
             if cand_len <= cols {
-                let pad = cols.saturating_sub(cand_len);
-                return format!(
-                    "{:>width$}{}{}{}",
-                    "",
-                    bg(BG.0, BG.1, BG.2),
-                    candidate,
-                    RESET,
-                    width = pad
-                );
+                return aligned(cols, cand_len, &candidate, state.config.alignment);
             }
             segs.pop();
         }
     } else {
-        let pad = cols.saturating_sub(plain_len);
-        format!(
-            "{:>width$}{}{}{}",
-            "",
-            bg(BG.0, BG.1, BG.2),
-            content,
-            RESET,
-            width = pad
-        )
+        aligned(cols, plain_len, &content, state.config.alignment)
+    }
+}
+
+/// Wrap `content` with background colour and pad according to `alignment`.
+fn aligned(cols: usize, content_len: usize, content: &str, alignment: Alignment) -> String {
+    let pad = cols.saturating_sub(content_len);
+    let bg_str = bg(BG.0, BG.1, BG.2);
+
+    match alignment {
+        Alignment::Left => {
+            format!(
+                "{}{}{}{:>width$}{}",
+                bg_str, content, RESET, "", RESET,
+                width = pad
+            )
+        }
+        Alignment::Center => {
+            let left = pad / 2;
+            let right = pad - left;
+            format!(
+                "{:>lw$}{}{}{}{:>rw$}{}",
+                "", bg_str, content, RESET, "", RESET,
+                lw = left, rw = right
+            )
+        }
+        Alignment::Right => {
+            format!(
+                "{:>width$}{}{}{}",
+                "", bg_str, content, RESET,
+                width = pad
+            )
+        }
     }
 }
 

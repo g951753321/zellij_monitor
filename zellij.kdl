@@ -15,6 +15,8 @@ layout {
                 // Aliases: mem, temp, net, load
                 plugins          "cpu, cpu_temp, memory"
                 refresh_interval "5"
+                // Alignment: "<" or "left", "^" or "center", ">" or "right" (default: left)
+                alignment       "center"
                 disk_path       "/"
                 network_interface "all"
                 cpu_warn_pct    "80"

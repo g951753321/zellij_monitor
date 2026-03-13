@@ -1,5 +1,30 @@
 use std::collections::BTreeMap;
 
+/// Horizontal alignment of the status bar content.
+///
+/// Configurable via the `alignment` key in the KDL layout:
+/// - `"left"` or `"<"` — left-aligned (default)
+/// - `"center"` or `"^"` — centered
+/// - `"right"` or `">"` — right-aligned
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Alignment {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+impl Alignment {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "<" | "left" => Some(Self::Left),
+            "^" | "center" => Some(Self::Center),
+            ">" | "right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
 /// Supported metric types for the status bar.
 ///
 /// Supported values: `cpu`, `memory`, `cpu_temp`, `disk`, `network`, `loadavg`.
@@ -47,6 +72,7 @@ impl MetricType {
 /// plugin location="file:~/.config/zellij/plugins/zellij_monitor.wasm" {
 ///     plugins          "cpu, memory, cpu_temp"
 ///     refresh_interval "5"
+///     alignment        "left"
 ///     disk_path        "/"
 ///     network_interface "all"
 ///     cpu_warn_pct     "80"
@@ -60,6 +86,7 @@ pub struct Config {
     /// Ordered list of metrics to display. Only metrics listed here are shown.
     pub plugins: Vec<MetricType>,
     pub refresh_interval: u64,
+    pub alignment: Alignment,
     pub disk_path: String,
     pub network_interface: String,
     pub cpu_warn_pct: u8,
@@ -74,6 +101,7 @@ impl Default for Config {
         Self {
             plugins: MetricType::all(),
             refresh_interval: 5,
+            alignment: Alignment::default(),
             disk_path: "/".to_owned(),
             network_interface: "all".to_owned(),
             cpu_warn_pct: 80,
@@ -105,6 +133,9 @@ impl Config {
         }
         if let Some(v) = map.get("refresh_interval") {
             cfg.refresh_interval = v.parse::<u64>().unwrap_or(5).max(1);
+        }
+        if let Some(v) = map.get("alignment") {
+            cfg.alignment = Alignment::from_str(v).unwrap_or_default();
         }
         if let Some(v) = map.get("disk_path") {
             cfg.disk_path = v.clone();
@@ -145,6 +176,7 @@ mod tests {
         let cfg = Config::from_map(&BTreeMap::new());
         assert_eq!(cfg.plugins, MetricType::all());
         assert_eq!(cfg.refresh_interval, 5);
+        assert_eq!(cfg.alignment, Alignment::Left);
         assert_eq!(cfg.disk_path, "/");
         assert_eq!(cfg.network_interface, "all");
         assert_eq!(cfg.cpu_warn_pct, 80);
@@ -218,5 +250,41 @@ mod tests {
     fn refresh_interval_minimum_is_1() {
         let cfg = Config::from_map(&map(&[("refresh_interval", "0")]));
         assert_eq!(cfg.refresh_interval, 1);
+    }
+
+    #[test]
+    fn alignment_parses_word_forms() {
+        assert_eq!(Alignment::from_str("left"), Some(Alignment::Left));
+        assert_eq!(Alignment::from_str("center"), Some(Alignment::Center));
+        assert_eq!(Alignment::from_str("right"), Some(Alignment::Right));
+    }
+
+    #[test]
+    fn alignment_parses_symbol_forms() {
+        assert_eq!(Alignment::from_str("<"), Some(Alignment::Left));
+        assert_eq!(Alignment::from_str("^"), Some(Alignment::Center));
+        assert_eq!(Alignment::from_str(">"), Some(Alignment::Right));
+    }
+
+    #[test]
+    fn alignment_is_case_insensitive() {
+        assert_eq!(Alignment::from_str("LEFT"), Some(Alignment::Left));
+        assert_eq!(Alignment::from_str("Center"), Some(Alignment::Center));
+        assert_eq!(Alignment::from_str("RIGHT"), Some(Alignment::Right));
+    }
+
+    #[test]
+    fn alignment_invalid_falls_back_to_default() {
+        let cfg = Config::from_map(&map(&[("alignment", "bogus")]));
+        assert_eq!(cfg.alignment, Alignment::Left);
+    }
+
+    #[test]
+    fn alignment_from_config_map() {
+        let cfg = Config::from_map(&map(&[("alignment", ">")]));
+        assert_eq!(cfg.alignment, Alignment::Right);
+
+        let cfg = Config::from_map(&map(&[("alignment", "center")]));
+        assert_eq!(cfg.alignment, Alignment::Center);
     }
 }
