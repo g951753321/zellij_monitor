@@ -46,6 +46,10 @@ struct State {
     // State flags
     initialized: bool,
     permissions_granted: bool,
+    /// `true` while exactly one `set_timeout` is outstanding. Guards against
+    /// arming overlapping timers, which would multiply each refresh cycle and
+    /// drive the poll rate far above `refresh_interval`.
+    timer_armed: bool,
 }
 
 register_plugin!(State);
@@ -71,7 +75,9 @@ impl ZellijPlugin for State {
                 self.permissions_granted = true;
                 set_selectable(false);
                 self.request_all_metrics(0.0);
-                set_timeout(self.config.refresh_interval as f64);
+                if self.claim_timer_slot() {
+                    set_timeout(self.config.refresh_interval as f64);
+                }
                 eprintln!("[zellij_monitor] initial metrics requested, timer armed");
                 true
             }
@@ -82,10 +88,16 @@ impl ZellijPlugin for State {
             }
             Event::Timer(elapsed) => {
                 eprintln!("[zellij_monitor] timer tick elapsed={:.2}s", elapsed);
+                // The one-shot timer that delivered this event is now spent.
+                self.release_timer_slot();
                 if self.permissions_granted {
                     self.request_all_metrics(elapsed);
                 }
-                set_timeout(self.config.refresh_interval as f64);
+                // Re-arm exactly one timer; a no-op if another is somehow still
+                // pending, so the in-flight count can never grow past one.
+                if self.claim_timer_slot() {
+                    set_timeout(self.config.refresh_interval as f64);
+                }
                 true
             }
             Event::RunCommandResult(exit_code, stdout, _stderr, context) => {
@@ -155,6 +167,26 @@ impl ZellijPlugin for State {
 }
 
 impl State {
+    /// Reserve the single timer slot. Returns `true` only when no timer is
+    /// currently in flight (the caller should then call `set_timeout`), and
+    /// `false` when one is already armed. This makes timer arming idempotent so
+    /// an instance can never accumulate more than one outstanding `set_timeout`,
+    /// regardless of duplicate permission grants or spurious timer deliveries.
+    fn claim_timer_slot(&mut self) -> bool {
+        if self.timer_armed {
+            false
+        } else {
+            self.timer_armed = true;
+            true
+        }
+    }
+
+    /// Mark the timer slot free again after a `Timer` event has been delivered
+    /// (the one-shot timer that fired no longer exists).
+    fn release_timer_slot(&mut self) {
+        self.timer_armed = false;
+    }
+
     fn request_all_metrics(&mut self, elapsed_s: f64) {
         self.last_elapsed_s = elapsed_s;
         eprintln!(
@@ -194,5 +226,36 @@ impl State {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod timer_tests {
+    use super::*;
+
+    #[test]
+    fn claim_timer_slot_is_idempotent_while_armed() {
+        let mut s = State::default();
+        assert!(s.claim_timer_slot(), "first claim must arm a timer");
+        assert!(
+            !s.claim_timer_slot(),
+            "second claim must NOT arm a duplicate timer"
+        );
+        assert!(
+            !s.claim_timer_slot(),
+            "still no duplicate while a timer is in flight"
+        );
+    }
+
+    #[test]
+    fn claim_timer_slot_rearms_after_release() {
+        let mut s = State::default();
+        assert!(s.claim_timer_slot());
+        s.release_timer_slot(); // the one-shot timer fired
+        assert!(
+            s.claim_timer_slot(),
+            "exactly one timer is re-armed after a fire"
+        );
+        assert!(!s.claim_timer_slot(), "but never two");
     }
 }
